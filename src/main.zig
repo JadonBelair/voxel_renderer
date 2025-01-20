@@ -20,6 +20,62 @@ const chunk_manager = struct {
         return chunk;
     }
 
+    fn render(view: *const zlm.Mat4, projection: *const zlm.Mat4) void {
+        var chunks_iter = chunks.valueIterator();
+        while (chunks_iter.next()) |chunk| {
+            chunk.draw(view, projection);
+        }
+        
+        // var verticies = std.ArrayList(f32).init(std.heap.page_allocator);
+        // defer verticies.deinit();
+
+        // var vertex_count: u32 = 0;
+
+        // var indicies = std.ArrayList(u32).init(std.heap.page_allocator);
+        // defer indicies.deinit();
+
+        // var chunks_iter = chunks.valueIterator();
+        // while (chunks_iter.next()) |chunk| {
+        //     if (chunk.vertex_count == 0) {
+        //         continue;
+        //     }
+
+        //     vertex_count += chunk.vertex_count;
+        //     verticies.appendSlice(chunk.verticies) catch {};
+        //     indicies.appendSlice(chunk.indicies) catch {};
+        // }
+
+        // if (vertex_count == 0) {
+        //     return;
+        // }
+
+        // const vbo = sg.makeBuffer(.{
+        //     .data = sg.asRange(verticies.items),
+        //     .type = .VERTEXBUFFER,
+        // });
+        // defer sg.destroyBuffer(vbo);
+
+        // const ibo = sg.makeBuffer(.{
+        //     .data = sg.asRange(indicies.items),
+        //     .type = .INDEXBUFFER,
+        // });
+        // defer sg.destroyBuffer(ibo);
+
+        // state.bind.vertex_buffers[0] = vbo;
+        // state.bind.index_buffer = ibo;
+
+        // const model = zlm.Mat4.identity;
+
+        // const uniform: shader.VsParams = .{
+        //     .mvp = @bitCast(model.mul(view.*).mul(projection.*)),
+        // };
+
+        // sg.applyUniforms(shader.UB_vs_params, sg.asRange(&uniform));
+        // sg.applyBindings(state.bind);
+
+        // sg.draw(0, vertex_count, 1);
+    }
+
     fn get_voxel(pos: zlm_i32.Vec3) bool {
         const chunk_x = @divFloor(pos.x, 32);
         const chunk_y = @divFloor(pos.y, 32);
@@ -62,17 +118,30 @@ const Chunk = struct {
     pos: zlm_i32.Vec3,
     vertex_count: u32,
     blocks: [32][32][32]bool,
-    vbo: sg.Buffer,
-    ibo: sg.Buffer,
+    verticies: []f32,
+    indicies: []u32,
+    generated: bool,
+    // vbo: sg.Buffer,
+    // ibo: sg.Buffer,
 
     fn draw(this: *Chunk, view: *const zlm.Mat4, projection: *const zlm.Mat4) void {
-        if (this.vbo.id == 0 or this.ibo.id == 0) {
-            // this.generate_mesh() catch {};
+        if (!this.generated or this.verticies.len == 0 or this.indicies.len == 0) {
             return;
         }
+        const vbo = sg.makeBuffer(.{
+            .data = sg.asRange(this.verticies),
+            .type = .VERTEXBUFFER,
+        });
+        defer sg.destroyBuffer(vbo);
 
-        state.bind.vertex_buffers[0] = this.vbo;
-        state.bind.index_buffer = this.ibo;
+        const ibo = sg.makeBuffer(.{
+            .data = sg.asRange(this.indicies),
+            .type = .INDEXBUFFER,
+        });
+        defer sg.destroyBuffer(ibo);
+
+        state.bind.vertex_buffers[0] = vbo;
+        state.bind.index_buffer = ibo;
 
         const model = zlm.Mat4.createTranslation(zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(32));
 
@@ -84,16 +153,6 @@ const Chunk = struct {
         sg.applyBindings(state.bind);
 
         sg.draw(0, this.vertex_count, 1);
-    }
-
-    fn cleanup(this: @This()) void {
-        if (this.vbo.id != 0) {
-            sg.destroyBuffer(this.vbo);
-        }
-
-        if (this.ibo.id != 0) {
-            sg.destroyBuffer(this.ibo);
-        }
     }
 
     fn generate_chunk(pos: zlm_i32.Vec3) Chunk {
@@ -120,8 +179,11 @@ const Chunk = struct {
             .pos = pos,
             .blocks = blocks,
             .vertex_count = 0,
-            .vbo = .{ .id = 0 },
-            .ibo = .{ .id = 0 },
+            // .vbo = .{ .id = 0 },
+            // .ibo = .{ .id = 0 },
+            .verticies = undefined,
+            .indicies = undefined,
+            .generated = false,
         };
     }
 
@@ -138,8 +200,6 @@ const Chunk = struct {
     }
     
     fn generate_mesh(this: *Chunk) !void {
-        this.cleanup();
-
         var vertecies = std.ArrayList(f32).init(std.heap.page_allocator);
         defer vertecies.deinit();
 
@@ -216,22 +276,9 @@ const Chunk = struct {
             }
         }
 
-        const mesh = try vertecies.toOwnedSlice();
-        const indicies_slice = try indicies.toOwnedSlice();
-
-        if (mesh.len == 0) {
-            return;
-        }
-
-        this.vbo = sg.makeBuffer(.{
-            .data = sg.asRange(mesh),
-            .type = .VERTEXBUFFER,
-        });
-
-        this.ibo = sg.makeBuffer(.{
-            .data = sg.asRange(indicies_slice),
-            .type = .INDEXBUFFER,
-        });
+        this.verticies = try vertecies.toOwnedSlice();
+        this.indicies = try indicies.toOwnedSlice();
+        this.generated = true;
     }
 
     fn generate_top_face(x: f32, y: f32, z: f32) [24]f32 {
@@ -296,10 +343,10 @@ export fn init() void {
     });
 
     for (0..5) |x| {
-        for (0..2) |y| {
+        for (0..5) |y| {
             for (0..5) |z| {
                 const chunk_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z));
-                _ = chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 1, 0))) catch return;
+                _ = chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 0, 0))) catch return;
             }
         }
     }
@@ -326,17 +373,14 @@ export fn init() void {
 }
 
 export fn frame() void {
-    const projection = zlm.Mat4.createPerspective(std.math.degreesToRadians(90.0), sapp.widthf() / sapp.heightf(), 0.1, 320.0);
+    const projection = zlm.Mat4.createPerspective(std.math.degreesToRadians(75.0), sapp.widthf() / sapp.heightf(), 0.1, 320.0);
     const view = zlm.Mat4.createLookAt(state.camera_pos, state.camera_pos.add(state.camera_front), state.camera_up);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
 
     sg.applyPipeline(state.pip);
 
-    var chunk_iter = chunk_manager.chunks.valueIterator();
-    while (chunk_iter.next()) |chunk| {
-        chunk.draw(&view, &projection);
-    }
+    chunk_manager.render(&view, &projection);
 
     sg.endPass();
     sg.commit();
