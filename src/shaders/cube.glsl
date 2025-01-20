@@ -19,7 +19,13 @@ in vec3 outNormal;
 out vec4 frag_color;
 
 void main() {
-	frag_color = vec4(outNormal, 1.0);
+	if (outNormal.x != 0) {
+		frag_color = vec4(0.6, 0.6, 0.6, 1.0);
+	} else if (outNormal.z != 0) {
+		frag_color = vec4(0.7, 0.7, 0.7, 1.0);
+	} else {
+		frag_color = vec4(0.9, 0.9, 0.9, 1.0);
+	}
 }
 @end
 
