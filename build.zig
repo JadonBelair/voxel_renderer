@@ -15,10 +15,22 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const shader_compile = b.addSystemCommand(&.{ "tools/sokol-shdc.exe" });
+
+    var shader_compiler_path: []const u8 = undefined;
+    if (target.result.os.tag == .linux) {
+        shader_compiler_path = "tools/sokol-shdc";
+    } else if (target.result.os.tag == .macos) {
+        shader_compiler_path = "tools/sokol-shdc-mac";
+
+    // assume windows otherwise
+    } else {
+        shader_compiler_path = "tools/sokol-shdc.exe";
+    }
+
+    const shader_compile = b.addSystemCommand(&.{ shader_compiler_path });
     shader_compile.addArgs(&.{
-        "--input", ".\\src\\shaders\\cube.glsl",
-        "--output", ".\\src\\shaders\\cube.glsl.zig",
+        "--input", "./src/shaders/cube.glsl",
+        "--output", "./src/shaders/cube.glsl.zig",
         "--slang", "glsl430:hlsl5:metal_macos:wgsl",
         "--format=sokol_zig",
     });
