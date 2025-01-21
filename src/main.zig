@@ -10,6 +10,9 @@ const shader = @import("shaders/cube.glsl.zig");
 const zlm = @import("zlm");
 const zlm_i32 = zlm.SpecializeOn(i32);
 
+const CHUNK_SIZE: usize = 32;
+const CHUNK_SPHERE_RADIUS: f32 = (@as(f32, @floatFromInt(CHUNK_SIZE)) * std.math.sqrt(3.0)) / 2.0;
+
 const chunk_manager = struct {
     var chunks: std.AutoHashMap(zlm_i32.Vec3, Chunk) = std.AutoHashMap(zlm_i32.Vec3, Chunk).init(std.heap.page_allocator);
 
@@ -109,25 +112,66 @@ fn generate_face(position: zlm_i32.Vec3, direction: Direction) [24]f32 {
 
 const Chunk = struct {
     pos: zlm_i32.Vec3,
-    blocks: [32*32*32]bool,
+    blocks: [CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE]bool,
     verticies: []f32,
     indicies: []u32,
     vbo: sg.Buffer,
     ibo: sg.Buffer,
 
+    fn is_on_frustum(this: *const Chunk, camera: *const Camera) bool {
+        const sphere_vec = this.center().sub(camera.position);
+
+        const sz = sphere_vec.dot(camera.front);
+        if (!(camera.near - CHUNK_SPHERE_RADIUS < sz and sz < camera.far + CHUNK_SPHERE_RADIUS)) {
+            return false;
+        }
+
+        const half_y = std.math.degreesToRadians(camera.get_v_fov() * 0.5);
+        const factor_y = 1.0 / @cos(half_y);
+        const tan_y = @tan(half_y);
+
+        const half_x = std.math.degreesToRadians(camera.fov * 0.5);
+        const factor_x = 1.0 / @cos(half_x);
+        const tan_x = @tan(half_x);
+
+        const sy = sphere_vec.dot(camera.up);
+        const dist_y = factor_y * CHUNK_SPHERE_RADIUS + sz * tan_y;
+        if (!(-dist_y < sy and sy < dist_y)) {
+            return false;
+        }
+
+        const sx = sphere_vec.dot(camera.front.cross(zlm.Vec3.unitY).normalize());
+        const dist_x = factor_x * CHUNK_SPHERE_RADIUS + sz * tan_x;
+        if (!(-dist_x < sx and sx < dist_x)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    fn center(this: *const Chunk) zlm.Vec3 {
+        const global_pos = this.global_position();
+        return global_pos.add(zlm.Vec3.all(@as(f32, @floatFromInt(CHUNK_SIZE)) / 2.0));
+    }
+
+    fn global_position(this: *const Chunk) zlm.Vec3 {
+        return zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(CHUNK_SIZE);
+    }
+
     fn generate_chunk(pos: zlm_i32.Vec3) Chunk {
-        var blocks: [32*32*32]bool = [_]bool{false} ** (32*32*32);
+        var blocks: [CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE]bool= [_]bool{false} ** (CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE);
 
 
         if (pos.y <= 0) {
-            const seed = (pos.z * 32 * 32) + (pos.y * 32) + pos.x;
+            const chunk_size = @as(i32, @intCast(CHUNK_SIZE));
+            const seed = (pos.z * (chunk_size*chunk_size)) + (pos.y * chunk_size) + pos.x;
             var rand = std.Random.DefaultPrng.init(@intCast(@as(i64, @intCast(std.math.maxInt(i32))) + seed));
             const rng = rand.random();
 
-            for (0..32) |current_x| {
-                for (0..32) |current_y| {
-                    for (0..32) |current_z| {
-                        const index = 32 * 32 * current_z + 32 * current_y + current_x;
+            for (0..CHUNK_SIZE) |current_x| {
+                for (0..CHUNK_SIZE) |current_y| {
+                    for (0..CHUNK_SIZE) |current_z| {
+                        const index = CHUNK_SIZE * CHUNK_SIZE * current_z + CHUNK_SIZE * current_y + current_x;
                         blocks[index] = rng.boolean();
                     }
                 }
@@ -145,12 +189,13 @@ const Chunk = struct {
     }
 
     fn get_voxel(this: *Chunk, pos: zlm_i32.Vec3) bool {
-        if (pos.x >= 0 and pos.x < 32 and pos.y >= 0 and pos.y < 32 and pos.z >= 0 and pos.z < 32) {
+        const chunk_size = @as(i32, @intCast(CHUNK_SIZE));
+        if (pos.x >= 0 and pos.x < chunk_size and pos.y >= 0 and pos.y < chunk_size and pos.z >= 0 and pos.z < chunk_size) {
             const voxel_x = @as(usize, @intCast(pos.x));
             const voxel_y = @as(usize, @intCast(pos.y));
             const voxel_z = @as(usize, @intCast(pos.z));
 
-            const index = 32 * 32 * voxel_z + 32 * voxel_y + voxel_x;
+            const index = CHUNK_SIZE * CHUNK_SIZE * voxel_z + CHUNK_SIZE * voxel_y + voxel_x;
             return this.blocks[index];
         } else {
             return false;
@@ -158,14 +203,14 @@ const Chunk = struct {
     }
 
     fn draw(this: *const Chunk, camera: *const Camera) void {
-            if (this.vbo.id == 0 or this.ibo.id == 0) {
+            if (this.vbo.id == 0 or this.ibo.id == 0 or !this.is_on_frustum(camera)) {
                 return;
             }
 
             const projection = camera.get_projection();
             const view = camera.get_view();
 
-            const model = zlm.Mat4.createTranslation(zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(32));
+            const model = zlm.Mat4.createTranslation(zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(CHUNK_SIZE));
             const uniform: shader.VsParams = .{
                 .mvp = @bitCast(model.mul(view).mul(projection)),
             };
@@ -188,12 +233,12 @@ const Chunk = struct {
 
         var face_count: u32 = 0;
 
-        for (0..32) |x| {
-            for (0..32) |z| {
-                for (0..32) |y| {
+        for (0..CHUNK_SIZE) |x| {
+            for (0..CHUNK_SIZE) |z| {
+                for (0..CHUNK_SIZE) |y| {
                     const voxel_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z));
 
-                    const index = 32 * 32 * z + 32 * y + x;
+                    const index = CHUNK_SIZE * CHUNK_SIZE * z + CHUNK_SIZE * y + x;
                     if (this.blocks[index]) {
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(0, 0, 1)))) {
                             try vertecies.appendSlice(&generate_face(voxel_pos, .FORWARD));
@@ -254,31 +299,34 @@ const Chunk = struct {
 };
 
 const Camera = struct {
-    fov: f32 = 0.0,
+    fov: f32 = 75.0,
     position: zlm.Vec3 = zlm.Vec3.zero,
-    front: zlm.Vec3 = zlm.Vec3.zero,
-    up: zlm.Vec3 = zlm.Vec3.zero,
-    yaw: f32 = 0.0,
+    front: zlm.Vec3 = zlm.Vec3.unitZ.neg(),
+    up: zlm.Vec3 = zlm.Vec3.unitY,
+    yaw: f32 = -90.0,
     pitch: f32 = 0.0,
+
+    near: f32 = 0.1,
+    far: f32 = 320.0,
 
     fn new(position: zlm.Vec3) Camera {
         return .{
-            .fov = 75.0,
             .position = position,
-            .front = zlm.Vec3.unitZ.neg(),
-            .up = zlm.Vec3.unitY,
-            .yaw = -90.0,
-            .pitch = 0.0,
         };
     }
 
     fn get_projection(this: *const Camera) zlm.Mat4 {
-        _ = this;
-        return zlm.Mat4.createPerspective(std.math.degreesToRadians(75.0), sapp.widthf() / sapp.heightf(), 0.1, 320.0);
+        return zlm.Mat4.createPerspective(std.math.degreesToRadians(this.fov), sapp.widthf() / sapp.heightf(), this.near, this.far);
     }
 
     fn get_view(this: *const Camera) zlm.Mat4 {
-        return zlm.Mat4.createLookAt(this.position, this.position.add(this.front), this.up);
+        return zlm.Mat4.createLookAt(this.position, this.position.add(this.front), zlm.Vec3.unitY);
+    }
+
+    fn get_v_fov(this: *const Camera) f32 {
+        const half_width = @tan(std.math.degreesToRadians(this.fov/2.0));
+        const half_height = sapp.heightf() / sapp.widthf() * half_width;
+        return std.math.radiansToDegrees(std.math.atan(half_height) * 2.0);
     }
 };
 
@@ -289,15 +337,14 @@ export fn init() void {
         .buffer_pool_size = 10000, 
     });
 
-    state.camera = Camera.new(zlm.Vec3.all(35.0));
+    state.camera = Camera.new(zlm.Vec3.all(CHUNK_SIZE + 2));
 
     // find a more async way to load in chunks around the player at runtime
-    for (0..5) |x| {
-        for (0..5) |y| {
-            for (0..5) |z| {
+    for (0..15) |x| {
+        for (0..3) |y| {
+            for (0..15) |z| {
                 const chunk_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z));
-                // subtract 5 so that there is more than one chunk on the y-axis
-                _ = chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 4, 0))) catch return;
+                _ = chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 2, 0))) catch return;
             }
         }
     }
@@ -344,7 +391,7 @@ export fn event(ev: [*c]const sapp.Event) void {
             state.camera.position = state.camera.position.sub(state.camera.front.scale(camera_speed));
         }
 
-        const camera_right = state.camera.front.cross(state.camera.up).normalize();
+        const camera_right = state.camera.front.cross(zlm.Vec3.unitY).normalize();
         if (ev.*.key_code == .A) {
             state.camera.position = state.camera.position.sub(camera_right.scale(camera_speed));
         }
@@ -364,6 +411,10 @@ export fn event(ev: [*c]const sapp.Event) void {
         if (ev.*.key_code == .ESCAPE) {
             sapp.showMouse(!sapp.mouseShown());
             sapp.lockMouse(!sapp.mouseLocked());
+        }
+
+        if (ev.*.key_code == .F) {
+            sapp.toggleFullscreen();
         }
     }
 
@@ -390,6 +441,9 @@ export fn event(ev: [*c]const sapp.Event) void {
         );
 
         state.camera.front = direcion.normalize();
+        const camera_right = state.camera.front.cross(zlm.Vec3.unitY).normalize();
+
+        state.camera.up = state.camera.front.cross(camera_right).normalize();
     }
 
     if (ev.*.type == .UNFOCUSED) {
