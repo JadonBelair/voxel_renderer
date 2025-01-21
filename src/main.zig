@@ -20,10 +20,10 @@ const chunk_manager = struct {
         return chunk;
     }
 
-    fn render(view: *const zlm.Mat4, projection: *const zlm.Mat4) void {
+    fn render(camera: *const Camera) void {
         var chunks_iter = chunks.valueIterator();
         while (chunks_iter.next()) |chunk| {
-            chunk.draw(view, projection);
+            chunk.draw(camera);
         }
     }
 
@@ -37,12 +37,7 @@ const state = struct {
     var bind: sg.Bindings = .{};
     var pip: sg.Pipeline = .{};
 
-    var camera_pos: zlm.Vec3 = zlm.Vec3.all(35.0);
-    var camera_front: zlm.Vec3 = zlm.Vec3.unitZ.neg();
-    var camera_up: zlm.Vec3 = zlm.Vec3.unitY;
-
-    var yaw: f32 = -90.0;
-    var pitch: f32 = 0.0;
+    var camera: Camera = .{};
 };
 
 const Direction = enum {
@@ -144,8 +139,8 @@ const Chunk = struct {
             .blocks = blocks,
             .verticies = undefined,
             .indicies = undefined,
-            .vbo = .{ .id = 0 },
-            .ibo = .{ .id = 0 },
+            .vbo = .{},
+            .ibo = .{},
         };
     }
 
@@ -162,14 +157,17 @@ const Chunk = struct {
         }
     }
 
-    fn draw(this: *const Chunk, view: *const zlm.Mat4, projection: *const zlm.Mat4) void {
+    fn draw(this: *const Chunk, camera: *const Camera) void {
             if (this.vbo.id == 0 or this.ibo.id == 0) {
                 return;
             }
 
+            const projection = camera.get_projection();
+            const view = camera.get_view();
+
             const model = zlm.Mat4.createTranslation(zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(32));
             const uniform: shader.VsParams = .{
-                .mvp = @bitCast(model.mul(view.*).mul(projection.*)),
+                .mvp = @bitCast(model.mul(view).mul(projection)),
             };
 
             state.bind.vertex_buffers[0] = this.vbo;
@@ -253,7 +251,35 @@ const Chunk = struct {
             .type = .INDEXBUFFER,
         });
     }
+};
 
+const Camera = struct {
+    fov: f32 = 0.0,
+    position: zlm.Vec3 = zlm.Vec3.zero,
+    front: zlm.Vec3 = zlm.Vec3.zero,
+    up: zlm.Vec3 = zlm.Vec3.zero,
+    yaw: f32 = 0.0,
+    pitch: f32 = 0.0,
+
+    fn new(position: zlm.Vec3) Camera {
+        return .{
+            .fov = 75.0,
+            .position = position,
+            .front = zlm.Vec3.unitZ.neg(),
+            .up = zlm.Vec3.unitY,
+            .yaw = -90.0,
+            .pitch = 0.0,
+        };
+    }
+
+    fn get_projection(this: *const Camera) zlm.Mat4 {
+        _ = this;
+        return zlm.Mat4.createPerspective(std.math.degreesToRadians(75.0), sapp.widthf() / sapp.heightf(), 0.1, 320.0);
+    }
+
+    fn get_view(this: *const Camera) zlm.Mat4 {
+        return zlm.Mat4.createLookAt(this.position, this.position.add(this.front), this.up);
+    }
 };
 
 export fn init() void {
@@ -262,6 +288,8 @@ export fn init() void {
         .logger = .{ .func = slog.func },
         .buffer_pool_size = 10000, 
     });
+
+    state.camera = Camera.new(zlm.Vec3.all(35.0));
 
     // find a more async way to load in chunks around the player at runtime
     for (0..5) |x| {
@@ -296,13 +324,10 @@ export fn init() void {
 }
 
 export fn frame() void {
-    const projection = zlm.Mat4.createPerspective(std.math.degreesToRadians(75.0), sapp.widthf() / sapp.heightf(), 0.1, 320.0);
-    const view = zlm.Mat4.createLookAt(state.camera_pos, state.camera_pos.add(state.camera_front), state.camera_up);
-
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);
 
-    chunk_manager.render(&view, &projection);
+    chunk_manager.render(&state.camera);
 
     sg.endPass();
     sg.commit();
@@ -312,27 +337,28 @@ export fn event(ev: [*c]const sapp.Event) void {
     const camera_speed = @as(f32, @floatCast(sapp.frameDuration())) * 100.0;
     if (ev.*.type == .KEY_DOWN) {
         if (ev.*.key_code == .W) {
-            state.camera_pos = state.camera_pos.add(state.camera_front.scale(camera_speed));
+            state.camera.position = state.camera.position.add(state.camera.front.scale(camera_speed));
         }
 
         if (ev.*.key_code == .S) {
-            state.camera_pos = state.camera_pos.sub(state.camera_front.scale(camera_speed));
+            state.camera.position = state.camera.position.sub(state.camera.front.scale(camera_speed));
         }
 
+        const camera_right = state.camera.front.cross(state.camera.up).normalize();
         if (ev.*.key_code == .A) {
-            state.camera_pos = state.camera_pos.sub(state.camera_front.cross(state.camera_up).normalize().scale(camera_speed));
+            state.camera.position = state.camera.position.sub(camera_right.scale(camera_speed));
         }
         
         if (ev.*.key_code == .D) {
-            state.camera_pos = state.camera_pos.add(state.camera_front.cross(state.camera_up).normalize().scale(camera_speed));
+            state.camera.position = state.camera.position.add(camera_right.scale(camera_speed));
         }
 
         if (ev.*.key_code == .SPACE) {
-            state.camera_pos.y += camera_speed;
+            state.camera.position.y += camera_speed;
         }
 
         if (ev.*.key_code == .LEFT_SHIFT) {
-            state.camera_pos.y -= camera_speed;
+            state.camera.position.y -= camera_speed;
         }
 
         if (ev.*.key_code == .ESCAPE) {
@@ -347,23 +373,23 @@ export fn event(ev: [*c]const sapp.Event) void {
         const x_offset = ev.*.mouse_dx * sensitivity;
         const y_offset = ev.*.mouse_dy * sensitivity;
 
-        state.yaw += x_offset;
-        state.pitch -= y_offset;
+        state.camera.yaw += x_offset;
+        state.camera.pitch -= y_offset;
 
 
-        if (state.pitch > 89.0) {
-            state.pitch = 89.0;
-        } else if (state.pitch < -89.0) {
-            state.pitch = -89.0;
+        if (state.camera.pitch > 89.0) {
+            state.camera.pitch = 89.0;
+        } else if (state.camera.pitch < -89.0) {
+            state.camera.pitch = -89.0;
         }
 
         const direcion = zlm.Vec3.new(
-            @cos(std.math.degreesToRadians(state.yaw)) * @cos(std.math.degreesToRadians(state.pitch)),
-            @sin(std.math.degreesToRadians(state.pitch)),
-            @sin(std.math.degreesToRadians(state.yaw)) * @cos(std.math.degreesToRadians(state.pitch)),
+            @cos(std.math.degreesToRadians(state.camera.yaw)) * @cos(std.math.degreesToRadians(state.camera.pitch)),
+            @sin(std.math.degreesToRadians(state.camera.pitch)),
+            @sin(std.math.degreesToRadians(state.camera.yaw)) * @cos(std.math.degreesToRadians(state.camera.pitch)),
         );
 
-        state.camera_front = direcion.normalize();
+        state.camera.front = direcion.normalize();
     }
 
     if (ev.*.type == .UNFOCUSED) {
