@@ -25,75 +25,6 @@ const chunk_manager = struct {
         while (chunks_iter.next()) |chunk| {
             chunk.draw(view, projection);
         }
-        
-        // var verticies = std.ArrayList(f32).init(std.heap.page_allocator);
-        // defer verticies.deinit();
-
-        // var vertex_count: u32 = 0;
-
-        // var indicies = std.ArrayList(u32).init(std.heap.page_allocator);
-        // defer indicies.deinit();
-
-        // var chunks_iter = chunks.valueIterator();
-        // while (chunks_iter.next()) |chunk| {
-        //     if (chunk.vertex_count == 0) {
-        //         continue;
-        //     }
-
-        //     vertex_count += chunk.vertex_count;
-        //     verticies.appendSlice(chunk.verticies) catch {};
-        //     indicies.appendSlice(chunk.indicies) catch {};
-        // }
-
-        // if (vertex_count == 0) {
-        //     return;
-        // }
-
-        // const vbo = sg.makeBuffer(.{
-        //     .data = sg.asRange(verticies.items),
-        //     .type = .VERTEXBUFFER,
-        // });
-        // defer sg.destroyBuffer(vbo);
-
-        // const ibo = sg.makeBuffer(.{
-        //     .data = sg.asRange(indicies.items),
-        //     .type = .INDEXBUFFER,
-        // });
-        // defer sg.destroyBuffer(ibo);
-
-        // state.bind.vertex_buffers[0] = vbo;
-        // state.bind.index_buffer = ibo;
-
-        // const model = zlm.Mat4.identity;
-
-        // const uniform: shader.VsParams = .{
-        //     .mvp = @bitCast(model.mul(view.*).mul(projection.*)),
-        // };
-
-        // sg.applyUniforms(shader.UB_vs_params, sg.asRange(&uniform));
-        // sg.applyBindings(state.bind);
-
-        // sg.draw(0, vertex_count, 1);
-    }
-
-    fn get_voxel(pos: zlm_i32.Vec3) bool {
-        const chunk_x = @divFloor(pos.x, 32);
-        const chunk_y = @divFloor(pos.y, 32);
-        const chunk_z = @divFloor(pos.z, 32);
-        const chunk_pos = zlm_i32.Vec3.new(chunk_x, chunk_y, chunk_z);
-
-        const voxel_x = @as(usize, @intCast(@mod(pos.x, 32)));
-        const voxel_y = @as(usize, @intCast(@mod(pos.y, 32)));
-        const voxel_z = @as(usize, @intCast(@mod(pos.z, 32)));
-
-        const maybe_chunk = chunks.get(chunk_pos);
-        if (maybe_chunk) |chunk| {
-            return chunk.blocks[voxel_x][voxel_y][voxel_z];
-        } else {
-            const chunk = Chunk.generate_chunk(chunk_pos);
-            chunks.put(chunk_pos, chunk) catch {};
-            return chunk.blocks[voxel_x][voxel_y][voxel_z];
-        }
     }
 
     fn cleanup() void {
@@ -114,62 +45,95 @@ const state = struct {
     var pitch: f32 = 0.0;
 };
 
+const Direction = enum {
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+    FORWARD,
+    BACK,
+};
+
+/// Vertex layout: pos_x, pos_y, pos_z, normal_z, normal_y, normal_z
+fn generate_face(position: zlm_i32.Vec3, direction: Direction) [24]f32 {
+    const x = @as(f32, @floatFromInt(position.x));
+    const y = @as(f32, @floatFromInt(position.y));
+    const z = @as(f32, @floatFromInt(position.z));
+
+    switch (direction) {
+        .UP => {
+            return [24]f32 {
+                0.0 + x, 1.0 + y, 0.0 + z,    0.0,  1.0,  0.0,
+                1.0 + x, 1.0 + y, 0.0 + z,    0.0,  1.0,  0.0,
+                0.0 + x, 1.0 + y, 1.0 + z,    0.0,  1.0,  0.0,
+                1.0 + x, 1.0 + y, 1.0 + z,    0.0,  1.0,  0.0,
+            };
+        },
+        .DOWN => {
+            return [24]f32 {
+                0.0 + x, 0.0 + y, 1.0 + z,    0.0, -1.0,  0.0,
+                1.0 + x, 0.0 + y, 1.0 + z,    0.0, -1.0,  0.0,
+                0.0 + x, 0.0 + y, 0.0 + z,    0.0, -1.0,  0.0,
+                1.0 + x, 0.0 + y, 0.0 + z,    0.0, -1.0,  0.0,
+            };
+        },
+        .LEFT => {
+            return [24]f32 {
+                0.0 + x, 1.0 + y, 0.0 + z,   -1.0,  0.0,  0.0,
+                0.0 + x, 1.0 + y, 1.0 + z,   -1.0,  0.0,  0.0,
+                0.0 + x, 0.0 + y, 0.0 + z,   -1.0,  0.0,  0.0,
+                0.0 + x, 0.0 + y, 1.0 + z,   -1.0,  0.0,  0.0,
+            };
+        },
+        .RIGHT => {
+            return [24]f32 {
+                1.0 + x, 1.0 + y, 1.0 + z,    1.0,  0.0,  0.0,
+                1.0 + x, 1.0 + y, 0.0 + z,    1.0,  0.0,  0.0,
+                1.0 + x, 0.0 + y, 1.0 + z,    1.0,  0.0,  0.0,
+                1.0 + x, 0.0 + y, 0.0 + z,    1.0,  0.0,  0.0,
+            };
+        },
+        .FORWARD => {
+            return [24]f32 {
+                0.0 + x, 1.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
+                1.0 + x, 1.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
+                0.0 + x, 0.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
+                1.0 + x, 0.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
+            };
+        },
+        .BACK => {
+            return [24]f32 {
+                1.0 + x, 1.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
+                0.0 + x, 1.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
+                1.0 + x, 0.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
+                0.0 + x, 0.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
+            };
+        },
+    }
+}
+
 const Chunk = struct {
     pos: zlm_i32.Vec3,
-    vertex_count: u32,
-    blocks: [32][32][32]bool,
+    blocks: [32*32*32]bool,
     verticies: []f32,
     indicies: []u32,
-    generated: bool,
-    // vbo: sg.Buffer,
-    // ibo: sg.Buffer,
-
-    fn draw(this: *Chunk, view: *const zlm.Mat4, projection: *const zlm.Mat4) void {
-        if (!this.generated or this.verticies.len == 0 or this.indicies.len == 0) {
-            return;
-        }
-        const vbo = sg.makeBuffer(.{
-            .data = sg.asRange(this.verticies),
-            .type = .VERTEXBUFFER,
-        });
-        defer sg.destroyBuffer(vbo);
-
-        const ibo = sg.makeBuffer(.{
-            .data = sg.asRange(this.indicies),
-            .type = .INDEXBUFFER,
-        });
-        defer sg.destroyBuffer(ibo);
-
-        state.bind.vertex_buffers[0] = vbo;
-        state.bind.index_buffer = ibo;
-
-        const model = zlm.Mat4.createTranslation(zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(32));
-
-        const uniform: shader.VsParams = .{
-            .mvp = @bitCast(model.mul(view.*).mul(projection.*)),
-        };
-
-        sg.applyUniforms(shader.UB_vs_params, sg.asRange(&uniform));
-        sg.applyBindings(state.bind);
-
-        sg.draw(0, this.vertex_count, 1);
-    }
+    vbo: sg.Buffer,
+    ibo: sg.Buffer,
 
     fn generate_chunk(pos: zlm_i32.Vec3) Chunk {
-        var blocks: [32][32][32]bool = undefined;
+        var blocks: [32*32*32]bool = [_]bool{false} ** (32*32*32);
 
-        const seed = (pos.z * 32 * 32) + (pos.y * 32) + pos.x;
 
-        var rand = std.Random.DefaultPrng.init(@intCast(@as(i64, @intCast(std.math.maxInt(i32))) + seed));
-        const rng = rand.random();
+        if (pos.y <= 0) {
+            const seed = (pos.z * 32 * 32) + (pos.y * 32) + pos.x;
+            var rand = std.Random.DefaultPrng.init(@intCast(@as(i64, @intCast(std.math.maxInt(i32))) + seed));
+            const rng = rand.random();
 
-        for (0..32) |current_x| {
-            for (0..32) |current_y| {
-                for (0..32) |current_z| {
-                    if (pos.y > 0) {
-                        blocks[current_x][current_y][current_z] = false;
-                    } else {
-                        blocks[current_x][current_y][current_z] = rng.boolean();
+            for (0..32) |current_x| {
+                for (0..32) |current_y| {
+                    for (0..32) |current_z| {
+                        const index = 32 * 32 * current_z + 32 * current_y + current_x;
+                        blocks[index] = rng.boolean();
                     }
                 }
             }
@@ -178,27 +142,45 @@ const Chunk = struct {
         return .{
             .pos = pos,
             .blocks = blocks,
-            .vertex_count = 0,
-            // .vbo = .{ .id = 0 },
-            // .ibo = .{ .id = 0 },
             .verticies = undefined,
             .indicies = undefined,
-            .generated = false,
+            .vbo = .{ .id = 0 },
+            .ibo = .{ .id = 0 },
         };
     }
 
     fn get_voxel(this: *Chunk, pos: zlm_i32.Vec3) bool {
-        const diff = this.pos.scale(32).sub(pos);
-        if (diff.x > -32 and diff.y > -32 and diff.z > -32 and diff.x <= 0 and diff.y <= 0 and diff.z <= 0) {
-            const voxel_x = @as(usize, @intCast(@mod(pos.x, 32)));
-            const voxel_y = @as(usize, @intCast(@mod(pos.y, 32)));
-            const voxel_z = @as(usize, @intCast(@mod(pos.z, 32)));
-            return this.blocks[voxel_x][voxel_y][voxel_z];
+        if (pos.x >= 0 and pos.x < 32 and pos.y >= 0 and pos.y < 32 and pos.z >= 0 and pos.z < 32) {
+            const voxel_x = @as(usize, @intCast(pos.x));
+            const voxel_y = @as(usize, @intCast(pos.y));
+            const voxel_z = @as(usize, @intCast(pos.z));
+
+            const index = 32 * 32 * voxel_z + 32 * voxel_y + voxel_x;
+            return this.blocks[index];
         } else {
-            return chunk_manager.get_voxel(pos);
+            return false;
         }
     }
-    
+
+    fn draw(this: *const Chunk, view: *const zlm.Mat4, projection: *const zlm.Mat4) void {
+            if (this.vbo.id == 0 or this.ibo.id == 0) {
+                return;
+            }
+
+            const model = zlm.Mat4.createTranslation(zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(32));
+            const uniform: shader.VsParams = .{
+                .mvp = @bitCast(model.mul(view.*).mul(projection.*)),
+            };
+
+            state.bind.vertex_buffers[0] = this.vbo;
+            state.bind.index_buffer = this.ibo;
+
+            sg.applyUniforms(shader.UB_vs_params, sg.asRange(&uniform));
+            sg.applyBindings(state.bind);
+
+            sg.draw(0, @intCast(this.indicies.len), 1);
+    }
+
     fn generate_mesh(this: *Chunk) !void {
         var vertecies = std.ArrayList(f32).init(std.heap.page_allocator);
         defer vertecies.deinit();
@@ -209,65 +191,44 @@ const Chunk = struct {
         var face_count: u32 = 0;
 
         for (0..32) |x| {
-            const float_x: f32 = @floatFromInt(x);
             for (0..32) |z| {
-                const float_z: f32 = @floatFromInt(z);
                 for (0..32) |y| {
-                    const float_y: f32 = @floatFromInt(y);
-                    const val = this.blocks[x][y][z];
-                    const voxel_pos = this.pos.scale(32).add(zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z)));
+                    const voxel_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z));
 
-                    if (val) {
+                    const index = 32 * 32 * z + 32 * y + x;
+                    if (this.blocks[index]) {
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(0, 0, 1)))) {
-                        // if (z != 31 and !this.blocks[x][y][z+1]) {
-                            try vertecies.appendSlice(&Chunk.generate_front_face(float_x, float_y, float_z));
-                            this.vertex_count += 24;
-
+                            try vertecies.appendSlice(&generate_face(voxel_pos, .FORWARD));
                             try indicies.appendSlice(&[6]u32 {face_count, face_count + 1, face_count + 2, face_count + 1, face_count + 3, face_count + 2});
                             face_count += 4;
                         }
 
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(1, 0, 0)))) {
-                        // if (x != 31 and !this.blocks[x+1][y][z]) {
-                            try vertecies.appendSlice(&Chunk.generate_right_face(float_x, float_y, float_z));
-                            this.vertex_count += 24;
-
+                            try vertecies.appendSlice(&generate_face(voxel_pos, .RIGHT));
                             try indicies.appendSlice(&[6]u32 {face_count, face_count + 1, face_count + 2, face_count + 1, face_count + 3, face_count + 2});
                             face_count += 4;
                         }
 
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(0, -1, 0)))) {
-                        // if (y != 0 and !this.blocks[x][y-1][z]) {
-                            try vertecies.appendSlice(&Chunk.generate_bottom_face(float_x, float_y, float_z));
-                            this.vertex_count += 24;
-
+                            try vertecies.appendSlice(&generate_face(voxel_pos, .DOWN));
                             try indicies.appendSlice(&[6]u32 {face_count, face_count + 1, face_count + 2, face_count + 1, face_count + 3, face_count + 2});
                             face_count += 4;
                         }
 
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(-1, 0, 0)))) {
-                        // if (x != 0 and !this.blocks[x-1][y][z]) {
-                            try vertecies.appendSlice(&Chunk.generate_left_face(float_x, float_y, float_z));
-                            this.vertex_count += 24;
-
+                            try vertecies.appendSlice(&generate_face(voxel_pos, .LEFT));
                             try indicies.appendSlice(&[6]u32 {face_count, face_count + 1, face_count + 2, face_count + 1, face_count + 3, face_count + 2});
                             face_count += 4;
                         }
 
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(0, 1, 0)))) {
-                        // if (y != 31 and !this.blocks[x][y+1][z]) {
-                            try vertecies.appendSlice(&Chunk.generate_top_face(float_x, float_y, float_z));
-                            this.vertex_count += 24;
-
+                            try vertecies.appendSlice(&generate_face(voxel_pos, .UP));
                             try indicies.appendSlice(&[6]u32 {face_count, face_count + 1, face_count + 2, face_count + 1, face_count + 3, face_count + 2});
                             face_count += 4;
                         }
 
                         if (!this.get_voxel(voxel_pos.add(zlm_i32.Vec3.new(0, 0, -1)))) {
-                        // if (z != 0 and !this.blocks[x][y][z-1]) {
-                            try vertecies.appendSlice(&Chunk.generate_back_face(float_x, float_y, float_z));
-                            this.vertex_count += 24;
-
+                            try vertecies.appendSlice(&generate_face(voxel_pos, .BACK));
                             try indicies.appendSlice(&[6]u32 {face_count, face_count + 1, face_count + 2, face_count + 1, face_count + 3, face_count + 2});
                             face_count += 4;
                         }
@@ -278,75 +239,37 @@ const Chunk = struct {
 
         this.verticies = try vertecies.toOwnedSlice();
         this.indicies = try indicies.toOwnedSlice();
-        this.generated = true;
+
+        if (this.indicies.len == 0) {
+            return;
+        }
+
+        this.vbo = sg.makeBuffer(.{
+            .data = sg.asRange(this.verticies),
+            .type = .VERTEXBUFFER,
+        });
+        this.ibo = sg.makeBuffer(.{
+            .data = sg.asRange(this.indicies),
+            .type = .INDEXBUFFER,
+        });
     }
 
-    fn generate_top_face(x: f32, y: f32, z: f32) [24]f32 {
-        return [24]f32 {
-            0.0 + x, 1.0 + y, 0.0 + z,    0.0,  1.0,  0.0,
-            1.0 + x, 1.0 + y, 0.0 + z,    0.0,  1.0,  0.0,
-            0.0 + x, 1.0 + y, 1.0 + z,    0.0,  1.0,  0.0,
-            1.0 + x, 1.0 + y, 1.0 + z,    0.0,  1.0,  0.0,
-        };
-    }
-
-    fn generate_bottom_face(x: f32, y: f32, z: f32) [24]f32 {
-        return [24]f32 {
-            0.0 + x, 0.0 + y, 1.0 + z,    0.0, -1.0,  0.0,
-            1.0 + x, 0.0 + y, 1.0 + z,    0.0, -1.0,  0.0,
-            0.0 + x, 0.0 + y, 0.0 + z,    0.0, -1.0,  0.0,
-            1.0 + x, 0.0 + y, 0.0 + z,    0.0, -1.0,  0.0,
-        };
-    }
-
-    fn generate_left_face(x: f32, y: f32, z: f32) [24]f32 {
-        return [24]f32 {
-            0.0 + x, 1.0 + y, 0.0 + z,   -1.0,  0.0,  0.0,
-            0.0 + x, 1.0 + y, 1.0 + z,   -1.0,  0.0,  0.0,
-            0.0 + x, 0.0 + y, 0.0 + z,   -1.0,  0.0,  0.0,
-            0.0 + x, 0.0 + y, 1.0 + z,   -1.0,  0.0,  0.0,
-        };
-    }
-
-    fn generate_right_face(x: f32, y: f32, z: f32) [24]f32 {
-        return [24]f32 {
-            1.0 + x, 1.0 + y, 1.0 + z,    1.0,  0.0,  0.0,
-            1.0 + x, 1.0 + y, 0.0 + z,    1.0,  0.0,  0.0,
-            1.0 + x, 0.0 + y, 1.0 + z,    1.0,  0.0,  0.0,
-            1.0 + x, 0.0 + y, 0.0 + z,    1.0,  0.0,  0.0,
-        };
-    }
-
-    fn generate_front_face(x: f32, y: f32, z: f32) [24]f32 {
-        return [24]f32 {
-            0.0 + x, 1.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
-            1.0 + x, 1.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
-            0.0 + x, 0.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
-            1.0 + x, 0.0 + y, 1.0 + z,    0.0,  0.0,  1.0,
-        };
-    }
-
-    fn generate_back_face(x: f32, y: f32, z: f32) [24]f32 {
-        return [24]f32 {
-            1.0 + x, 1.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
-            0.0 + x, 1.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
-            1.0 + x, 0.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
-            0.0 + x, 0.0 + y, 0.0 + z,    0.0,  0.0, -1.0,
-        };
-    }
 };
 
 export fn init() void {
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
+        .buffer_pool_size = 10000, 
     });
 
+    // find a more async way to load in chunks around the player at runtime
     for (0..5) |x| {
         for (0..5) |y| {
             for (0..5) |z| {
                 const chunk_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z));
-                _ = chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 0, 0))) catch return;
+                // subtract 5 so that there is more than one chunk on the y-axis
+                _ = chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 4, 0))) catch return;
             }
         }
     }
@@ -356,7 +279,7 @@ export fn init() void {
         .cull_mode = .BACK,
         .face_winding = .CW,
         .depth = .{
-            .compare = .LESS_EQUAL,
+            .compare = .LESS,
             .write_enabled = true,
         },
     };
@@ -377,7 +300,6 @@ export fn frame() void {
     const view = zlm.Mat4.createLookAt(state.camera_pos, state.camera_pos.add(state.camera_front), state.camera_up);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
-
     sg.applyPipeline(state.pip);
 
     chunk_manager.render(&view, &projection);
@@ -386,7 +308,6 @@ export fn frame() void {
     sg.commit();
 }
 
-var first_mouse = true;
 export fn event(ev: [*c]const sapp.Event) void {
     const camera_speed = @as(f32, @floatCast(sapp.frameDuration())) * 100.0;
     if (ev.*.type == .KEY_DOWN) {
@@ -406,13 +327,21 @@ export fn event(ev: [*c]const sapp.Event) void {
             state.camera_pos = state.camera_pos.add(state.camera_front.cross(state.camera_up).normalize().scale(camera_speed));
         }
 
+        if (ev.*.key_code == .SPACE) {
+            state.camera_pos.y += camera_speed;
+        }
+
+        if (ev.*.key_code == .LEFT_SHIFT) {
+            state.camera_pos.y -= camera_speed;
+        }
+
         if (ev.*.key_code == .ESCAPE) {
             sapp.showMouse(!sapp.mouseShown());
             sapp.lockMouse(!sapp.mouseLocked());
         }
     }
 
-    if (ev.*.type == .MOUSE_MOVE) {
+    if (ev.*.type == .MOUSE_MOVE and sapp.mouseLocked()) {
         const sensitivity = 0.1;
 
         const x_offset = ev.*.mouse_dx * sensitivity;
