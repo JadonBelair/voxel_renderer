@@ -25,14 +25,14 @@ export fn init() void {
 
     state.chunk_manager = ChunkManager.init(std.heap.page_allocator);
 
-    state.camera = Camera.new(zlm.Vec3.all(Chunk.CHUNK_SIZE + 2));
+    state.camera = Camera.new(zlm.Vec3.all(Chunk.CHUNK_SIZE + 2).add(zlm.Vec3.new(@floatFromInt(Chunk.CHUNK_SIZE * 3), @floatFromInt(Chunk.CHUNK_SIZE * 3), 0.0)));
 
     // find a more async way to load in chunks around the player at runtime
     for (0..15) |x| {
-        for (0..3) |y| {
+        for (0..15) |y| {
             for (0..15) |z| {
-                const chunk_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z));
-                _ = state.chunk_manager.generate_chunk(chunk_pos.sub(zlm_i32.Vec3.new(0, 2, 0))) catch return;
+                const chunk_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z)).sub(zlm_i32.Vec3.new(0, 5, 0));
+                _ = state.chunk_manager.generate_chunk(chunk_pos) catch return;
             }
         }
     }

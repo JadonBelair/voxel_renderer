@@ -31,6 +31,10 @@
             .url = "git+https://github.com/ziglibs/zlm.git#35b76fae19f9d0a1ed541db621d7c4b3e266087e",
             .hash = "1220342ac333965de915f74a8425e4848ffe46852da0e4789103f9ec650c3cd22456",
         },
+        .znoise = .{
+            .url = "git+https://github.com/zig-gamedev/znoise.git#b6e7a24c9bfa4bae63521664e191a728b5b18805",
+            .hash = "12208e16c80366e2a2f8bd3f1c676b09bf47c157f4d0f0d6440555f9b74d8a9d79f7",
+        },
     },
     .paths = .{
         "build.zig",

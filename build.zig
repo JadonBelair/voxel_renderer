@@ -52,8 +52,15 @@ pub fn build(b: *std.Build) void {
     });
     const dep_zlm = b.dependency("zlm", .{});
 
+    const dep_znoise = b.dependency("znoise", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     exe.root_module.addImport("sokol", dep_sokol.module("sokol"));
     exe.root_module.addImport("zlm", dep_zlm.module("zlm"));
+    exe.root_module.addImport("znoise", dep_znoise.module("root"));
+    exe.linkLibrary(dep_znoise.artifact("FastNoiseLite"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
