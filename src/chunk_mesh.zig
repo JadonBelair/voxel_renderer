@@ -11,7 +11,7 @@ const shader = @import("shaders/cube.glsl.zig");
 const Camera = @import("camera.zig");
 const Chunk = @import("chunk.zig");
 
-const state = @import("state.zig").state;
+const state = @import("state.zig");
 
 const ChunkMesh = @This();
 

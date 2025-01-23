@@ -16,8 +16,9 @@ const Chunk = @import("chunk.zig");
 const ChunkManager = @import("chunk_manager.zig");
 const Camera = @import("camera.zig");
 
-const state = @import("state.zig").state;
+const state = @import("state.zig");
 
+const PLAYER_SPEED: f32 = 75.0;
 const RENDER_DIST: usize = 6;
 
 export fn init() void {
@@ -59,6 +60,44 @@ export fn frame() void {
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);
 
+    const prev_pos = state.camera.position;
+    var velocity = zlm.Vec3.zero;
+    const camera_speed = @as(f32, @floatCast(sapp.frameDuration())) * PLAYER_SPEED;
+    if (state.input_manager.is_down(.W)) {
+        velocity = velocity.add(state.camera.front);
+    }
+
+    if (state.input_manager.is_down(.S)) {
+        velocity = velocity.sub(state.camera.front);
+    }
+
+    const camera_right = state.camera.front.cross(zlm.Vec3.unitY).normalize();
+    if (state.input_manager.is_down(.A)) {
+        velocity = velocity.sub(camera_right);
+    }
+
+    if (state.input_manager.is_down(.D)) {
+        velocity = velocity.add(camera_right);
+    }
+
+    if (state.input_manager.is_down(.SPACE)) {
+        velocity.y += 1.0;
+    }
+
+    if (state.input_manager.is_down(.LEFT_SHIFT)) {
+        velocity.y -= 1.0;
+    }
+
+    state.camera.position = state.camera.position.add(velocity.normalize().scale(camera_speed));
+    const new_pos = state.camera.position;
+
+    const prev_chunk = Chunk.to_chunk_position(prev_pos);
+    const new_chunk = Chunk.to_chunk_position(new_pos);
+
+    if (!prev_chunk.eql(new_chunk)) {
+        state.chunk_manager.load_around(new_chunk, RENDER_DIST) catch {};
+    }
+
     state.chunk_manager.process_load(3) catch {};
 
     state.chunk_manager.render(&state.camera);
@@ -68,42 +107,9 @@ export fn frame() void {
 }
 
 export fn event(ev: [*c]const sapp.Event) void {
-    const camera_speed = @as(f32, @floatCast(sapp.frameDuration())) * 100.0;
+    state.input_manager.handle_event(ev);
+
     if (ev.*.type == .KEY_DOWN) {
-        const prev_pos = state.camera.position;
-        if (ev.*.key_code == .W) {
-            state.camera.position = state.camera.position.add(state.camera.front.scale(camera_speed));
-        }
-
-        if (ev.*.key_code == .S) {
-            state.camera.position = state.camera.position.sub(state.camera.front.scale(camera_speed));
-        }
-
-        const camera_right = state.camera.front.cross(zlm.Vec3.unitY).normalize();
-        if (ev.*.key_code == .A) {
-            state.camera.position = state.camera.position.sub(camera_right.scale(camera_speed));
-        }
-        
-        if (ev.*.key_code == .D) {
-            state.camera.position = state.camera.position.add(camera_right.scale(camera_speed));
-        }
-
-        if (ev.*.key_code == .SPACE) {
-            state.camera.position.y += camera_speed;
-        }
-
-        if (ev.*.key_code == .LEFT_SHIFT) {
-            state.camera.position.y -= camera_speed;
-        }
-        const new_pos = state.camera.position;
-
-        const prev_chunk = Chunk.to_chunk_position(prev_pos);
-        const new_chunk = Chunk.to_chunk_position(new_pos);
-
-        if (!prev_chunk.eql(new_chunk)) {
-            state.chunk_manager.load_around(new_chunk, RENDER_DIST) catch {};
-        }
-
         if (ev.*.key_code == .ESCAPE) {
             sapp.showMouse(!sapp.mouseShown());
             sapp.lockMouse(!sapp.mouseLocked());

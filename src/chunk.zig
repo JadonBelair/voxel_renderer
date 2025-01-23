@@ -14,7 +14,7 @@ const Camera = @import("camera.zig");
 
 const ChunkMesh = @import("chunk_mesh.zig");
 
-const state = @import("state.zig").state;
+const state = @import("state.zig");
 
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_SPHERE_RADIUS: f32 = (@as(f32, @floatFromInt(CHUNK_SIZE)) * std.math.sqrt(3.0)) / 2.0;
