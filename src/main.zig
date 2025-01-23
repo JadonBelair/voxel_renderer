@@ -10,32 +10,29 @@ const shader = @import("shaders/cube.glsl.zig");
 const zlm = @import("zlm");
 const zlm_i32 = zlm.SpecializeOn(i32);
 
+const zigimg = @import("zigimg");
+
 const Chunk = @import("chunk.zig");
 const ChunkManager = @import("chunk_manager.zig");
 const Camera = @import("camera.zig");
 
 const state = @import("state.zig").state;
 
+const RENDER_DIST: usize = 6;
+
 export fn init() void {
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
-        .buffer_pool_size = 10000, 
+        .buffer_pool_size = 15000, 
     });
 
     state.chunk_manager = ChunkManager.init(std.heap.page_allocator);
 
-    state.camera = Camera.new(zlm.Vec3.all(Chunk.CHUNK_SIZE + 2).add(zlm.Vec3.new(@floatFromInt(Chunk.CHUNK_SIZE * 3), @floatFromInt(Chunk.CHUNK_SIZE * 3), 0.0)));
+    state.camera = Camera.new(zlm.Vec3.zero.add(zlm.Vec3.new(0.0, @floatFromInt(Chunk.CHUNK_SIZE * 2), 0.0)));
 
-    // find a more async way to load in chunks around the player at runtime
-    for (0..15) |x| {
-        for (0..15) |y| {
-            for (0..15) |z| {
-                const chunk_pos = zlm_i32.Vec3.new(@intCast(x), @intCast(y), @intCast(z)).sub(zlm_i32.Vec3.new(0, 5, 0));
-                _ = state.chunk_manager.generate_chunk(chunk_pos) catch return;
-            }
-        }
-    }
+    state.chunk_manager.load_around(Chunk.to_chunk_position(state.camera.position), RENDER_DIST) catch {};
+
     var pipe_desc: sg.PipelineDesc = .{
         .shader = sg.makeShader(shader.cubeShaderDesc(sg.queryBackend())),
         .index_type = .UINT32,
@@ -62,6 +59,8 @@ export fn frame() void {
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);
 
+    state.chunk_manager.process_load(3) catch {};
+
     state.chunk_manager.render(&state.camera);
 
     sg.endPass();
@@ -71,6 +70,7 @@ export fn frame() void {
 export fn event(ev: [*c]const sapp.Event) void {
     const camera_speed = @as(f32, @floatCast(sapp.frameDuration())) * 100.0;
     if (ev.*.type == .KEY_DOWN) {
+        const prev_pos = state.camera.position;
         if (ev.*.key_code == .W) {
             state.camera.position = state.camera.position.add(state.camera.front.scale(camera_speed));
         }
@@ -94,6 +94,14 @@ export fn event(ev: [*c]const sapp.Event) void {
 
         if (ev.*.key_code == .LEFT_SHIFT) {
             state.camera.position.y -= camera_speed;
+        }
+        const new_pos = state.camera.position;
+
+        const prev_chunk = Chunk.to_chunk_position(prev_pos);
+        const new_chunk = Chunk.to_chunk_position(new_pos);
+
+        if (!prev_chunk.eql(new_chunk)) {
+            state.chunk_manager.load_around(new_chunk, RENDER_DIST) catch {};
         }
 
         if (ev.*.key_code == .ESCAPE) {

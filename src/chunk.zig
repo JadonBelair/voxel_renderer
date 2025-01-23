@@ -61,13 +61,21 @@ fn is_on_frustum(this: *const Chunk, camera: *const Camera) bool {
     return true;
 }
 
-fn center(this: *const Chunk) zlm.Vec3 {
+pub fn center(this: *const Chunk) zlm.Vec3 {
     const global_pos = this.global_position();
     return global_pos.add(zlm.Vec3.all(@as(f32, @floatFromInt(CHUNK_SIZE)) / 2.0));
 }
 
-fn global_position(this: *const Chunk) zlm.Vec3 {
+pub fn global_position(this: *const Chunk) zlm.Vec3 {
     return zlm.Vec3.new(@floatFromInt(this.pos.x), @floatFromInt(this.pos.y), @floatFromInt(this.pos.z)).scale(CHUNK_SIZE);
+}
+
+pub fn to_chunk_position(pos: zlm.Vec3) zlm_i32.Vec3 {
+    const x: i32 = @intFromFloat(@divFloor(pos.x, CHUNK_SIZE));
+    const y: i32 = @intFromFloat(@divFloor(pos.y, CHUNK_SIZE));
+    const z: i32 = @intFromFloat(@divFloor(pos.z, CHUNK_SIZE));
+
+    return zlm_i32.Vec3.new(x, y, z);
 }
 
 pub fn generate_chunk(pos: zlm_i32.Vec3) Chunk {
@@ -118,4 +126,8 @@ pub fn draw(this: *const Chunk, camera: *const Camera) void {
 
 pub fn generate_mesh(this: *Chunk) !void {
     this.mesh = try ChunkMesh.generate(this);
+}
+
+pub fn destroy_mesh(this: *const Chunk) void {
+    this.mesh.destroy();
 }

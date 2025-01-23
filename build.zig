@@ -37,6 +37,9 @@ pub fn build(b: *std.Build) void {
 
     shader_compile.addFileInput(b.path("./src/shaders/cube.glsl"));
 
+    const shader_step = b.step("shaders", "Compiles the shaders");
+    shader_step.dependOn(&shader_compile.step);
+
     const exe = b.addExecutable(.{
         .name = "voxel_engine",
         .root_source_file = b.path("src/main.zig"),

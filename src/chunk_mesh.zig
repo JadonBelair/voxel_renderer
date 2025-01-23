@@ -44,6 +44,11 @@ pub fn draw(this: *const ChunkMesh, camera: *const Camera, pos: zlm_i32.Vec3) vo
     sg.draw(0, @intCast(this.indicies.len), 1);
 }
 
+pub fn destroy(this: *const ChunkMesh) void {
+    sg.destroyBuffer(this.vbo);
+    sg.destroyBuffer(this.ibo);
+}
+
 pub fn generate(chunk: *const Chunk) !ChunkMesh {
     var this: ChunkMesh = .{};
 
@@ -128,7 +133,7 @@ const Direction = enum {
     BACK,
 };
 
-/// Vertex layout: pos_x, pos_y, pos_z, normal_x, normal_y, normal_z
+/// Vertex layout: pos_x, pos_y, pos_z, normal_x, normal_y, normal_z, tex_x, tex_y
 fn generate_face(position: zlm_i32.Vec3, direction: Direction) [24]f32 {
     const x = @as(f32, @floatFromInt(position.x));
     const y = @as(f32, @floatFromInt(position.y));
