@@ -2,7 +2,7 @@ const std = @import("std");
 const sokol = @import("sokol");
 const sapp = sokol.app;
 
-const NUM_KEYS: usize = @typeInfo(sapp.Keycode).Enum.fields.len;
+const NUM_KEYS = sapp.max_keycodes;
 
 const Input = @This();
 
