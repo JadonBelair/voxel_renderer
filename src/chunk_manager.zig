@@ -53,16 +53,15 @@ pub fn load_around(this: *ChunkManager, position: zlm_i32.Vec3, radius: usize) !
 pub fn process_load(this: *ChunkManager, amount: usize) !void {
     for (0..amount) |_| {
         if (this.to_load.popOrNull()) |chunk_pos| {
-            _ = try this.generate_chunk(chunk_pos);
+            try this.generate_chunk(chunk_pos);
         }
     }
 }
 
-pub fn generate_chunk(this: *ChunkManager, pos: zlm_i32.Vec3) !Chunk {
+pub fn generate_chunk(this: *ChunkManager, pos: zlm_i32.Vec3) !void {
     var chunk = Chunk.generate_chunk(pos);
     try chunk.generate_mesh();
     try this.chunks.put(pos, chunk);
-    return chunk;
 }
 
 pub fn render(this: *ChunkManager, camera: *const Camera) void {
