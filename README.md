@@ -15,5 +15,9 @@ Requires Zig version 0.13.0
 - Space - Go Up
 - Esc - Toggle Mouse Lock
 
+## Screenshot
+
+![Image of the world](./screenshots/World.png)
+
 ## Known Issues
 There is some kind of vram leak going on internally and I'm not to sure why that is.
